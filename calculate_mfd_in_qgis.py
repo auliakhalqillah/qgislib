@@ -1,8 +1,11 @@
 import pandas as pd
-from seislib import mfd_mle
+from openpyxl import load_workbook
+from seislib.mfd_mle import mfd
 
 # Get the polygon of segment fault area
-fault_layers = QgsProject.instance().mapLayersByName('Fault Segment Area')
+#fault_layers = QgsProject.instance().mapLayersByName('Fault Segment Area')
+#fault_layers = QgsProject.instance().mapLayersByName('megathrust')
+fault_layers = QgsProject.instance().mapLayersByName('Grid_1_degree')
 faultlayers = fault_layers[0]
 
 fault_features = faultlayers.getFeatures()
@@ -12,28 +15,31 @@ faultname = []
 faultgeom = []
 aValue, bValue, stdbValue, McValue, MmaxValue = [], [], [], [], []
 for fault in fault_features:
-#    faultname.append(fault.attributes()[0])
-#    faultgeom.append(fault.geometry())
-#    selected_faultname = faultname[0]
-
     #print(dir(faultlayers))
     #faultlayers.selectByExpression('"Drawings"=\'seulimum-north\'')
-    faultlayers.selectByExpression('"Drawings"=\'%s\'' % fault.attributes()[0])
+    # faultlayers.selectByExpression('"Drawings"=\'%s\'' % fault.attributes()[0])
+#    faultlayers.selectByExpression('"Region"=\'%s\'' % fault.attributes()[5])
+    faultlayers.selectByExpression('"id"=\'%f\'' % fault.attributes()[0])
     fault_selected = faultlayers.selectedFeatures()[0]
-    #print(fault_selected)
+#    print('>', fault_selected)
 
     # Get the earthquake data
-    eq = QgsProject.instance().mapLayersByName('SUMRELBMKGUSGSDLT40_1906_2022_DEC_INFAULT')
+    # eq = QgsProject.instance().mapLayersByName('SUMRELBMKGUSGSDLT40_1906_2022_DEC_INFAULT')
+#    eq = QgsProject.instance().mapLayersByName('SUMRELBMKGUSGSD20TO50_1906_2022_DEC_INTERFACE')
+#    eq = QgsProject.instance().mapLayersByName('SUMRELBMKGUSGSD50~TO300_1906_2022_DEC_INTRASLAB')
+    eq = QgsProject.instance().mapLayersByName('SUMRELBMKGUSGS_1906_2022_BGSOURCES')
 
     # earthquake point  layers
     eq_layers = eq[0]
-
+    
+    # 'D:/EQ_DATA/RISPRO/SUMATRA/SEGMENT_AREA/segment_fault_area.shp|layername=segment_fault_area'
+#    'D:\SHP\FAULTH_DAN_MEGATRUSHT\megathrust.shp'
     res = processing.run(
         "native:selectbylocation", {
         'INPUT':eq_layers,
         'PREDICATE':[6],
         'INTERSECT':QgsProcessingFeatureSourceDefinition(
-                    'D:/EQ_DATA/RISPRO/SUMATRA/SEGMENT_AREA/segment_fault_area.shp|layername=segment_fault_area', 
+                    'D:\EQ_DATA\RISPRO\SUMATRA\AREA_FAULT\BoundaryBoxSumatra\Grid_1_degree.shp', 
                     selectedFeaturesOnly=True, 
                     featureLimit=-1, 
                     geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid),
@@ -46,18 +52,23 @@ for fault in fault_features:
     if len(get_feature_in_res) != 0:
         try:
             df = pd.DataFrame(get_feature_in_res, columns=['Date', 'EventID', 'Magnitude', 'MagnitudeType', 'DecimalYear', 'DayOfYear', 'X', 'Y', 'Z', 'Longitude', 'Latitude', 'Depth'])
-            print(df.head())
-
+            #print(df.head())
+    
             # calculate the MFD
-            Mc, max_count_mc, Mmax, a_mle, b_mle, stdbMLE, _, _, _ = mfd_mle.mfd(fault.attributes()[0], df, 'Magnitude')
+            print(fault.attributes()[0])
+            proc = mfd(df)
+            meanMag, Mc, avalue, bvalue, stdbvalue = proc.mle(doplot=False, savefig=False)
+            #Mc, max_count_mc, Mmax, a_mle, b_mle, stdbMLE, _, _, _ = mfd_mle.mfd(fault.attributes()[0], df, 'Magnitude')
             faultname.append(fault.attributes()[0])
-            aValue.append(a_mle)
-            bValue.append(b_mle)
-            stdbValue.append(stdbMLE)
+            aValue.append(avalue)
+            bValue.append(bvalue)
+            stdbValue.append(stdbvalue)
             McValue.append(Mc)
-            MmaxValue.append(Mmax)
+            #MmaxValue.append(Mmax)
         except pd.errors.EmptyDataError or pandas.errors.IndexingError:
-            print('Data is empty')
+            pass
+#            print('Data is empty')
+            
     else:
         continue
 
@@ -66,14 +77,20 @@ collect_data = {
     'a-value': aValue,
     'b-value': bValue,
     'stdbValue': stdbValue,
-    'McValue': McValue,
-    'MmaxValue':MmaxValue
+    'McValue': McValue
 }
 
 df_mfd = pd.DataFrame(collect_data)
 print(df_mfd.head())
 
 # save to csv 
-df_mfd.to_excel('D:\EQ_DATA\RISPRO\SUMATRA\ALLCATALOG\ZMAP3\CODE\mfd_sumatra.xlsx', sheet_name='mdf')
+FilePath = 'D:\EQ_DATA\RISPRO\SUMATRA\ALLCATALOG\ZMAP3\CODE\mfd_sumatra.xlsx'
+ExcelWorkbook = load_workbook(FilePath)
+writer = pd.ExcelWriter(FilePath, engine = 'openpyxl')
+writer.book = ExcelWorkbook
+df_mfd.to_excel(writer, sheet_name='mdf_bgsources')
+writer.save()
+writer.close()
+#df_mfd.to_excel(, sheet_name='mdf_interface')
     
     
